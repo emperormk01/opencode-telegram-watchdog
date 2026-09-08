@@ -1,0 +1,150 @@
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/opencode-restart-command.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/opencode-restart-command.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/opencode-restart-command.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/opencode-restart-command.js
+@@ -1,13 +1,27 @@
++import fs from "node:fs";
++import { getRuntimePaths } from "../../runtime/paths.js";
+ import { logger } from "../../utils/logger.js";
+ import { t } from "../../i18n/index.js";
+-
+ /**
+  * Restart only the Telegram bridge process.
+  * The external supervisor relaunches it; the OpenCode server and session stay alive.
++ * The status message is edited to "✅ Restarted." by the fresh process on startup
++ * (this process is gone by then), via a pending-restart.json marker file.
+  */
+ export async function opencodeRestartCommand(ctx) {
+-    await ctx.reply(t("opencode_restart.restarting"));
++    const statusMessage = await ctx.reply(t("opencode_restart.restarting"));
+     logger.info("[Bot] Safe bridge restart requested via /opencode_restart");
++    try {
++        const pendingPath = `${getRuntimePaths().appHome}/pending-restart.json`;
++        fs.writeFileSync(pendingPath, JSON.stringify({
++            chatId: ctx.chat.id,
++            messageId: statusMessage.message_id,
++            requestedAt: Date.now(),
++        }), { mode: 0o600 });
++    }
++    catch (error) {
++        logger.warn("[Bot] Failed to record pending restart confirmation:", error);
++    }
+     setTimeout(() => {
+         process.kill(process.pid, "SIGTERM");
+     }, 500);
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/routers/command-router.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/routers/command-router.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/routers/command-router.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/routers/command-router.js
+@@ -1,7 +1,5 @@
+ import { config } from "../../config.js";
+ import { settingsCommand } from "../commands/settings-command.js";
+-import { opencodeStartCommand } from "../commands/opencode-start-command.js";
+-import { opencodeStopCommand } from "../commands/opencode-stop-command.js";
+ import { opencodeRestartCommand } from "../commands/opencode-restart-command.js";
+ import { projectsCommand } from "../commands/projects-command.js";
+ import { worktreeCommand } from "../commands/worktree-command.js";
+@@ -65,8 +63,6 @@
+     bot.command("help", helpCommand);
+     bot.command("status", statusCommand);
+     bot.command("settings", settingsCommand);
+-    bot.command("opencode_start", opencodeStartCommand);
+-    bot.command("opencode_stop", (ctx) => opencodeStopCommand(ctx, { clearRuntimeState: deps.clearRuntimeState }));
+     bot.command("opencode_restart", opencodeRestartCommand);
+     bot.command("projects", projectsCommand);
+     bot.command("worktree", worktreeCommand);
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/definitions.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/definitions.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/definitions.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/definitions.js
+@@ -19,8 +19,6 @@
+     { command: "commands", descriptionKey: "cmd.description.commands" },
+     { command: "skills", descriptionKey: "cmd.description.skills" },
+     { command: "mcps", descriptionKey: "cmd.description.mcps" },
+-    { command: "opencode_start", descriptionKey: "cmd.description.opencode_start" },
+-    { command: "opencode_stop", descriptionKey: "cmd.description.opencode_stop" },
+     { command: "opencode_restart", descriptionKey: "cmd.description.opencode_restart" },
+     { command: "open", descriptionKey: "cmd.description.open" },
+     { command: "ls", descriptionKey: "cmd.description.ls" },
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js
+@@ -227,6 +227,7 @@
+     "opencode_stop.success": "✅ OpenCode Server stopped successfully",
+     "opencode_stop.error": "🔴 An error occurred while stopping server.\n\nCheck application logs for details.",
+     "opencode_restart.restarting": "🔄 Restarting the Telegram bridge safely. Your OpenCode server and current session will stay alive.",
++    "opencode_restart.done": "✅ Restarted.",
+     "agent.changed_message": "✅ Agent changed to: {name}",
+     "agent.change_error_callback": "Failed to change agent",
+     "agent.menu.current": "Current agent: {name}\n\nSelect agent:",
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/app/bootstrap/start-bot-app.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/app/bootstrap/start-bot-app.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/app/bootstrap/start-bot-app.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/app/bootstrap/start-bot-app.js
+@@ -1,4 +1,5 @@
+ import fs from "node:fs/promises";
++import path from "node:path";
+ import { cleanupBotRuntime, createBot } from "../../bot/index.js";
+ import { createScheduledTaskDeliverySender } from "../../bot/messages/scheduled-task-delivery.js";
+ import { config } from "../../config.js";
+@@ -7,7 +8,9 @@
+ import { flushSettings, loadSettings } from "../stores/settings-store.js";
+ import { scheduledTaskRuntime } from "../services/scheduled-task-runtime-service.js";
+ import { LocalCommandRegistry } from "../services/local-command-registry.js";
+-import { BUILT_IN_COMMAND_NAMES } from "../../bot/commands/definitions.js";
++import { BUILT_IN_COMMAND_NAMES, BOT_COMMANDS, } from "../../bot/commands/definitions.js";
++import { editBotText } from "../../bot/messages/telegram-text.js";
++import { t } from "../../i18n/index.js";
+ import { reconcileStoredModelSelection } from "../services/model-selection-service.js";
+ import { getBotVersion } from "../../runtime/bot-version.js";
+ import { getRuntimeMode } from "../../runtime/mode.js";
+@@ -19,6 +22,44 @@
+ const SHUTDOWN_TIMEOUT_MS = 5000;
+ const SETTINGS_FLUSH_TIMEOUT_MS = 1000;
+ const LOG_FLUSH_TIMEOUT_MS = 1000;
++// Refresh the Telegram "/" command menu on every boot so it always matches the
++// registered commands (Telegram clients cache the menu aggressively).
++async function refreshCommandsMenu(bot) {
++    try {
++        await bot.api.setMyCommands(BOT_COMMANDS);
++        logger.info("[Bot] Commands menu refreshed at startup");
++    }
++    catch (error) {
++        logger.warn("[Bot] Failed to refresh commands menu at startup:", error);
++    }
++}
++// If the previous bridge process restarted itself via /opencode_restart, it left
++// a marker file; edit its status message to the final "✅ Restarted." text.
++async function confirmPendingRestart(bot) {
++    const pendingPath = path.join(getRuntimePaths().appHome, "pending-restart.json");
++    try {
++        await fs.access(pendingPath);
++    }
++    catch {
++        return;
++    }
++    try {
++        const pending = JSON.parse(await fs.readFile(pendingPath, "utf8"));
++        await editBotText({
++            api: bot.api,
++            chatId: pending.chatId,
++            messageId: pending.messageId,
++            text: t("opencode_restart.done"),
++        });
++        logger.info("[Bot] Pending restart confirmation delivered");
++    }
++    catch (error) {
++        logger.warn("[Bot] Failed to deliver pending restart confirmation:", error);
++    }
++    finally {
++        await fs.rm(pendingPath, { force: true }).catch(() => { });
++    }
++}
+ export async function startBotApp() {
+     await initializeLogger();
+     const mode = getRuntimeMode();
+@@ -145,6 +186,8 @@
+             drop_pending_updates: true,
+             onStart: (botInfo) => {
+                 logger.info(`Bot @${botInfo.username} started!`);
++                void refreshCommandsMenu(bot);
++                void confirmPendingRestart(bot);
+             },
+         });
+     }

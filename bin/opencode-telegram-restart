@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Safely restart the supervisor-owned Telegram OpenCode server.
+# This command never deletes the persistent OpenCode database.
+set -u
+umask 077
+
+ROOT=/workspace/data/opencode-telegram
+RUN="$ROOT/run"
+LOG="$ROOT/logs"
+SERVER_PID_FILE="$RUN/opencode-server.pid"
+SUPERVISOR=/workspace/bin/opencode-telegram-supervise
+
+mkdir -p "$RUN" "$LOG"
+
+pid_alive() {
+  local pid="$1"
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+cmdline() {
+  local pid="$1"
+  [ -r "/proc/$pid/cmdline" ] || return 1
+  tr '\0' ' ' < "/proc/$pid/cmdline"
+}
+
+valid_server_cmd() {
+  local pid="$1" cmd
+  cmd="$(cmdline "$pid" 2>/dev/null || true)"
+  [[ "$cmd" == *opencode* ]] && [[ "$cmd" == *serve* ]] && [[ "$cmd" == *4096* ]]
+}
+
+server_pid="$(cat "$SERVER_PID_FILE" 2>/dev/null || true)"
+case "$server_pid" in
+  ''|*[!0-9]*) server_pid="" ;;
+esac
+
+# Prefer the recorded PID, but recover safely if it is stale because the bot's
+# built-in restart path previously bypassed the supervisor and left a stale PID.
+if [ -z "$server_pid" ] || ! pid_alive "$server_pid" || ! valid_server_cmd "$server_pid"; then
+  server_pid=""
+  for proc in /proc/[0-9]*; do
+    pid="${proc##*/}"
+    if pid_alive "$pid" && valid_server_cmd "$pid"; then
+      server_pid="$pid"
+      break
+    fi
+  done
+fi
+
+if [ -n "$server_pid" ] && pid_alive "$server_pid"; then
+  # The launchers create a dedicated process group. Fall back to the exact PID
+  # if a manually-started process does not have one.
+  kill -TERM -- "-$server_pid" 2>/dev/null || kill -TERM "$server_pid" 2>/dev/null || true
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    pid_alive "$server_pid" || break
+    sleep 1
+  done
+  if pid_alive "$server_pid"; then
+    kill -KILL -- "-$server_pid" 2>/dev/null || kill -KILL "$server_pid" 2>/dev/null || true
+  fi
+  if [ "$(cat "$SERVER_PID_FILE" 2>/dev/null || true)" = "$server_pid" ]; then
+    rm -f "$SERVER_PID_FILE"
+  fi
+fi
+
+# Launching the supervisor is idempotent. An existing supervisor exits after
+# checking its exact PID file; otherwise this starts the persistent supervisor.
+setsid nohup "$SUPERVISOR" >> "$LOG/supervisor.log" 2>&1 < /dev/null &
+exit 0

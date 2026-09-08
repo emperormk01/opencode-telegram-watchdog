@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Vault-backed Telegram bridge launcher. Never stores the bot token on disk.
+set -euo pipefail
+umask 077
+
+ROOT=/workspace/data/opencode-telegram
+NODE=/workspace/runtime/node/bin/node
+BRIDGE=/workspace/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/cli.js
+TOKEN="$(assistant credentials reveal --service telegram --field bot_token 2>/dev/null || true)"
+SERVER_PW="$(assistant credentials reveal --service opencode_proxy --field server_password 2>/dev/null || true)"
+
+if [ -z "$TOKEN" ] || [ -z "$SERVER_PW" ]; then
+  echo "opencode-telegram-bridge: required vault credentials unavailable" >&2
+  exit 1
+fi
+if [ ! -x "$NODE" ] || [ ! -f "$BRIDGE" ]; then
+  echo "opencode-telegram-bridge: runtime is not installed" >&2
+  exit 1
+fi
+
+mkdir -p "$ROOT"/{bot,logs,state}
+export HOME=/workspace
+export PATH="/workspace/runtime/node/bin:/workspace/.opencode/bin:$PATH"
+export OPENCODE_TELEGRAM_HOME="$ROOT/bot"
+export XDG_STATE_HOME="$ROOT/state"
+# Keep any bridge-spawned OpenCode server (auto-restart) on the same config and
+# data dirs as bin/opencode-telegram-server, so AGENTS.md and the session DB in
+# $ROOT are used no matter who started the server.
+export XDG_DATA_HOME="$ROOT/opencode-data"
+export XDG_CONFIG_HOME="$ROOT/opencode-config"
+export XDG_CACHE_HOME="$ROOT/opencode-cache"
+export TELEGRAM_BOT_TOKEN="$TOKEN"
+export TELEGRAM_ALLOWED_USER_ID=7598252261
+export OPENCODE_API_URL=http://127.0.0.1:4096
+export OPENCODE_SERVER_USERNAME=opencode
+export OPENCODE_SERVER_PASSWORD="$SERVER_PW"
+export OPENCODE_MODEL_PROVIDER=opencode
+export OPENCODE_MODEL_ID=mimo-v2.5-free
+
+exec "$NODE" "$BRIDGE" start

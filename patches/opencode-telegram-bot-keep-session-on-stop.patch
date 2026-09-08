@@ -1,0 +1,40 @@
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/opencode-stop-command.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/opencode-stop-command.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/opencode-stop-command.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/opencode-stop-command.js
+@@ -10,6 +10,7 @@
+ import { promptQueue } from "../../app/managers/prompt-queue-manager.js";
+ import { clearAllInteractionState } from "../../app/managers/interaction-manager.js";
+ import { markAttachedSessionIdle } from "../../app/services/attach-service.js";
++import { getCurrentSession } from "../../app/services/session-service.js";
+ import { clearPromptResponseMode } from "../handlers/prompt.js";
+ const STOP_REASON = "opencode_stop";
+ async function releaseLocalStateAfterServerStop(clearRuntimeState) {
+@@ -53,6 +54,17 @@
+             await ctx.reply(t("opencode_stop.not_running"));
+             return;
+         }
++        // Guard: never kill the server while a session exists, because OpenCode
++        // wipes its in-memory session store on restart and cannot restore a
++        // persisted session by ID afterwards (GET /session/{id} -> NotFound).
++        // Stopping would silently destroy the user's current conversation.
++        // The safe way to switch sessions is /new (keeps the server alive).
++        const activeSession = getCurrentSession();
++        const attached = attachManager.getSnapshot();
++        if (activeSession || attached) {
++            await ctx.reply(t("opencode_stop.keep_session"));
++            return;
++        }
+         const statusMessage = await ctx.reply(t("opencode_stop.stopping", { pid }));
+         const stopped = await killServerProcess(pid, 5000);
+         if (!stopped) {
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js
+@@ -218,6 +218,7 @@
+     "opencode_stop.external_running": "⚠️ OpenCode Server is running as an external process\n\nThis server was not started via /opencode-start.\nStop it manually or use /status to check state.",
+     "opencode_stop.remote_configured": "⚠️ /opencode_stop works only with a local OpenCode Server.",
+     "opencode_stop.not_running": "⚠️ OpenCode Server is not running",
++    "opencode_stop.keep_session": "🛡️ Can't stop while a session still exists.\n\nStopping the server erases the current conversation and can't be undone. Use /new to start a fresh session safely, or /sessions to pick another one.",
+     "opencode_stop.pid_not_found": "⚠️ OpenCode Server responds on port {port}, but no local process was found to stop.",
+     "opencode_stop.stopping": "🛑 Stopping OpenCode Server...\n\nPID: {pid}",
+     "opencode_stop.stop_error": "🔴 Failed to stop OpenCode Server\n\nError: {error}",

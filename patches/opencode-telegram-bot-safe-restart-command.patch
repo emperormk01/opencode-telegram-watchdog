@@ -1,0 +1,68 @@
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/opencode-restart-command.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/opencode-restart-command.js
+new file mode 100644
+--- /dev/null
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/opencode-restart-command.js
+@@ -0,0 +1,14 @@
++import { logger } from "../../utils/logger.js";
++import { t } from "../../i18n/index.js";
++
++/**
++ * Restart only the Telegram bridge process.
++ * The external supervisor relaunches it; the OpenCode server and session stay alive.
++ */
++export async function opencodeRestartCommand(ctx) {
++    await ctx.reply(t("opencode_restart.restarting"));
++    logger.info("[Bot] Safe bridge restart requested via /opencode_restart");
++    setTimeout(() => {
++        process.kill(process.pid, "SIGTERM");
++    }, 500);
++}
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/routers/command-router.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/routers/command-router.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/routers/command-router.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/routers/command-router.js
+@@ -2,6 +2,7 @@
+ import { settingsCommand } from "../commands/settings-command.js";
+ import { opencodeStartCommand } from "../commands/opencode-start-command.js";
+ import { opencodeStopCommand } from "../commands/opencode-stop-command.js";
++import { opencodeRestartCommand } from "../commands/opencode-restart-command.js";
+ import { projectsCommand } from "../commands/projects-command.js";
+ import { worktreeCommand } from "../commands/worktree-command.js";
+ import { openCommand } from "../commands/open-command.js";
+@@ -66,6 +67,7 @@
+     bot.command("settings", settingsCommand);
+     bot.command("opencode_start", opencodeStartCommand);
+     bot.command("opencode_stop", (ctx) => opencodeStopCommand(ctx, { clearRuntimeState: deps.clearRuntimeState }));
++    bot.command("opencode_restart", opencodeRestartCommand);
+     bot.command("projects", projectsCommand);
+     bot.command("worktree", worktreeCommand);
+     bot.command("open", openCommand);
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/definitions.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/definitions.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/definitions.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/definitions.js
+@@ -21,6 +21,7 @@
+     { command: "mcps", descriptionKey: "cmd.description.mcps" },
+     { command: "opencode_start", descriptionKey: "cmd.description.opencode_start" },
+     { command: "opencode_stop", descriptionKey: "cmd.description.opencode_stop" },
++    { command: "opencode_restart", descriptionKey: "cmd.description.opencode_restart" },
+     { command: "open", descriptionKey: "cmd.description.open" },
+     { command: "ls", descriptionKey: "cmd.description.ls" },
+     { command: "help", descriptionKey: "cmd.description.help" },
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js
+@@ -15,6 +15,7 @@
+     "cmd.description.mcps": "MCP servers",
+     "cmd.description.opencode_start": "Start OpenCode server",
+     "cmd.description.opencode_stop": "Stop OpenCode server",
++    "cmd.description.opencode_restart": "Safely restart Telegram bridge",
+     "cmd.description.ls": "List directory contents",
+     "cmd.description.help": "Help",
+     "callback.unknown_command": "Unknown command",
+@@ -225,6 +226,7 @@
+     "opencode_stop.still_running": "Server is still responding after the stop request.",
+     "opencode_stop.success": "✅ OpenCode Server stopped successfully",
+     "opencode_stop.error": "🔴 An error occurred while stopping server.\n\nCheck application logs for details.",
++    "opencode_restart.restarting": "🔄 Restarting the Telegram bridge safely. Your OpenCode server and current session will stay alive.",
+     "agent.changed_message": "✅ Agent changed to: {name}",
+     "agent.change_error_callback": "Failed to change agent",
+     "agent.menu.current": "Current agent: {name}\n\nSelect agent:",

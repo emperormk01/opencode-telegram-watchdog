@@ -1,0 +1,305 @@
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/routers/command-router.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/routers/command-router.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/routers/command-router.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/routers/command-router.js
+@@ -6,6 +6,7 @@
+ import { openCommand } from "../commands/open-command.js";
+ import { lsCommand } from "../commands/ls-command.js";
+ import { sessionsCommand } from "../commands/sessions-command.js";
++import { deleteSessionCommand } from "../commands/delete-session-command.js";
+ import { messagesCommand } from "../commands/messages-command.js";
+ import { newCommand } from "../commands/new-command.js";
+ import { abortCommand } from "../commands/abort-command.js";
+@@ -69,6 +70,7 @@
+     bot.command("open", openCommand);
+     bot.command("ls", lsCommand);
+     bot.command("sessions", sessionsCommand);
++    bot.command("delete_session", deleteSessionCommand);
+     bot.command("messages", messagesCommand);
+     bot.command("new", (ctx) => newCommand(ctx, { bot, ensureEventSubscription: deps.ensureEventSubscription }));
+     bot.command("abort", abortCommand);
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/callbacks/callback-router.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/callbacks/callback-router.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/callbacks/callback-router.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/callbacks/callback-router.js
+@@ -4,6 +4,7 @@
+ import { handleAgentSelect } from "./agent-selection-callback-handler.js";
+ import { handleCommandsCallback } from "./command-catalog-callback-handler.js";
+ import { handleCompactConfirm } from "./context-control-callback-handler.js";
++import { handleDeleteSessionCallback } from "./delete-session-callback-handler.js";
+ import { handleLsCallback, handleOpenCallback } from "./file-browser-callback-handler.js";
+ import { handleInlineMenuCancel } from "./inline-menu-cancel-callback-handler.js";
+ import { handleMcpsCallback } from "./mcp-catalog-callback-handler.js";
+@@ -56,6 +57,10 @@
+             { name: "compact", handlers: [handleCompactConfirm], errorScope: "interaction" },
+         ],
+         [
++            "delses",
++            { name: "delses", handlers: [handleDeleteSessionCallback], errorScope: "interaction" },
++        ],
++        [
+             "ls",
+             { name: "ls", handlers: [handleLsCallback], errorScope: "interaction" },
+         ],
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/definitions.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/definitions.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/definitions.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/definitions.js
+@@ -20,6 +20,7 @@
+     { command: "skills", descriptionKey: "cmd.description.skills" },
+     { command: "mcps", descriptionKey: "cmd.description.mcps" },
+     { command: "opencode_restart", descriptionKey: "cmd.description.opencode_restart" },
++    { command: "delete_session", descriptionKey: "cmd.description.delete_session" },
+     { command: "open", descriptionKey: "cmd.description.open" },
+     { command: "ls", descriptionKey: "cmd.description.ls" },
+     { command: "help", descriptionKey: "cmd.description.help" },
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/menus/inline-menu.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/menus/inline-menu.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/menus/inline-menu.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/menus/inline-menu.js
+@@ -14,6 +14,7 @@
+     "ls",
+     "worktree",
+     "settings",
++    "delses",
+ ];
+ export function isInlineMenuKind(value) {
+     return INLINE_MENU_KINDS.includes(value);
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js
+@@ -16,6 +16,7 @@
+     "cmd.description.opencode_start": "Start OpenCode server",
+     "cmd.description.opencode_stop": "Stop OpenCode server",
+     "cmd.description.opencode_restart": "Safely restart Telegram bridge",
++    "cmd.description.delete_session": "Delete a session from the database",
+     "cmd.description.ls": "List directory contents",
+     "cmd.description.help": "Help",
+     "callback.unknown_command": "Unknown command",
+@@ -157,6 +158,18 @@
+     "sessions.loading_context": "⏳ Loading context and latest messages...",
+     "sessions.selected": "✅ Session selected: {title}",
+     "sessions.select_error": "🔴 Failed to select session.",
++    "delses.select": "🗑 Select a session to delete:",
++    "delses.select_page": "🗑 Select a session to delete (page {page}):",
++    "delses.empty": "📭 No sessions to delete.\n\nUse /new to create one.",
++    "delses.fetch_error": "🔴 OpenCode Server is unavailable or an error occurred while loading sessions.",
++    "delses.confirm": "⚠️ Are you sure you want to delete \"{title}\"?\n\nThis permanently deletes the session and its messages from the database.",
++    "delses.button.yes": "✅ Yes, delete",
++    "delses.button.no": "❌ No, cancel",
++    "delses.deleted": "✅ Session \"{title}\" deleted.",
++    "delses.cancelled": "❌ Cancelled. Nothing was deleted.",
++    "delses.not_found": "Session not found (it may already be deleted)",
++    "delses.delete_error": "🔴 Failed to delete the session",
++    "delses.error": "🔴 Failed to delete the session",
+     "sessions.preview.empty": "No recent messages.",
+     "sessions.preview.title": "Recent messages:",
+     "sessions.preview.you": "You:",
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/delete-session-command.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/delete-session-command.js
+new file mode 100644
+--- /dev/null
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/delete-session-command.js
+@@ -0,0 +1,62 @@
++import { InlineKeyboard } from "grammy";
++import { getCurrentProject } from "../../app/stores/settings-store.js";
++import { replyWithInlineMenu } from "../menus/inline-menu.js";
++import { isForegroundBusy } from "../../app/services/run-control-service.js";
++import { replyBusyBlocked } from "../messages/busy-blocked-renderer.js";
++import { loadSessionPage } from "../menus/session-selection-menu.js";
++import { logger } from "../../utils/logger.js";
++import { config } from "../../config.js";
++import { getDateLocale, t } from "../../i18n/index.js";
++export const DELETE_SESSION_CALLBACK_PREFIX = "delses:";
++export const DELETE_SESSION_PAGE_CALLBACK_PREFIX = `${DELETE_SESSION_CALLBACK_PREFIX}page:`;
++export const DELETE_SESSION_CONFIRM_CALLBACK_PREFIX = `${DELETE_SESSION_CALLBACK_PREFIX}confirm:`;
++export const DELETE_SESSION_CANCEL_CALLBACK_PREFIX = `${DELETE_SESSION_CALLBACK_PREFIX}cancel:`;
++export function buildDeleteSessionKeyboard(pageData, pageSize) {
++    const keyboard = new InlineKeyboard();
++    const localeForDate = getDateLocale();
++    const pageStartIndex = pageData.page * pageSize;
++    pageData.sessions.forEach((session, index) => {
++        const date = new Date(session.time.created).toLocaleDateString(localeForDate);
++        const label = `${pageStartIndex + index + 1}. ${session.title} (${date})`;
++        keyboard.text(label, `${DELETE_SESSION_CALLBACK_PREFIX}${session.id}`).row();
++    });
++    if (pageData.page > 0) {
++        keyboard.text(t("sessions.button.prev_page"), `${DELETE_SESSION_PAGE_CALLBACK_PREFIX}${pageData.page - 1}`);
++    }
++    if (pageData.hasNext) {
++        keyboard.text(t("sessions.button.next_page"), `${DELETE_SESSION_PAGE_CALLBACK_PREFIX}${pageData.page + 1}`);
++    }
++    if (pageData.page > 0 || pageData.hasNext) {
++        keyboard.row();
++    }
++    return keyboard;
++}
++export async function deleteSessionCommand(ctx) {
++    try {
++        if (isForegroundBusy()) {
++            await replyBusyBlocked(ctx);
++            return;
++        }
++        const pageSize = config.bot.sessionsListLimit;
++        const currentProject = getCurrentProject();
++        if (!currentProject) {
++            await ctx.reply(t("sessions.project_not_selected"));
++            return;
++        }
++        logger.debug(`[DeleteSession] Fetching sessions for directory: ${currentProject.worktree}`);
++        const firstPage = await loadSessionPage(currentProject.worktree, 0, pageSize);
++        if (firstPage.sessions.length === 0) {
++            await ctx.reply(t("delses.empty"));
++            return;
++        }
++        await replyWithInlineMenu(ctx, {
++            menuKind: "delses",
++            text: t("delses.select"),
++            keyboard: buildDeleteSessionKeyboard(firstPage, pageSize),
++        });
++    }
++    catch (error) {
++        logger.error("[DeleteSession] Error fetching sessions:", error);
++        await ctx.reply(t("delses.fetch_error"));
++    }
++}
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/callbacks/delete-session-callback-handler.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/callbacks/delete-session-callback-handler.js
+new file mode 100644
+--- /dev/null
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/callbacks/delete-session-callback-handler.js
+@@ -0,0 +1,140 @@
++import { InlineKeyboard } from "grammy";
++import { opencodeClient } from "../../opencode/client.js";
++import { getCurrentProject } from "../../app/stores/settings-store.js";
++import { getCurrentSession, clearSession } from "../../app/services/session-service.js";
++import { detachAttachedSession } from "../../app/services/attach-service.js";
++import { clearAllInteractionState } from "../../app/managers/interaction-manager.js";
++import { appendInlineMenuCancelButton, ensureActiveInlineMenu } from "../menus/inline-menu.js";
++import { isForegroundBusy } from "../../app/services/run-control-service.js";
++import { replyBusyBlocked } from "../messages/busy-blocked-renderer.js";
++import { loadSessionPage } from "../menus/session-selection-menu.js";
++import { buildDeleteSessionKeyboard, DELETE_SESSION_CALLBACK_PREFIX, DELETE_SESSION_CANCEL_CALLBACK_PREFIX, DELETE_SESSION_CONFIRM_CALLBACK_PREFIX, DELETE_SESSION_PAGE_CALLBACK_PREFIX, } from "../commands/delete-session-command.js";
++import { logger } from "../../utils/logger.js";
++import { config } from "../../config.js";
++import { t } from "../../i18n/index.js";
++import { failure } from "./feedback.js";
++export async function handleDeleteSessionCallback(ctx) {
++    const data = ctx.callbackQuery?.data;
++    if (!data || !data.startsWith(DELETE_SESSION_CALLBACK_PREFIX)) {
++        return false;
++    }
++    if (isForegroundBusy()) {
++        await replyBusyBlocked(ctx);
++        return true;
++    }
++    const isActiveMenu = await ensureActiveInlineMenu(ctx, "delses");
++    if (!isActiveMenu) {
++        return true;
++    }
++    const payload = data.slice(DELETE_SESSION_CALLBACK_PREFIX.length);
++    try {
++        if (payload.startsWith("page:")) {
++            await handleDeleteSessionPage(ctx, payload.slice("page:".length));
++            return true;
++        }
++        if (payload.startsWith("confirm:")) {
++            await handleDeleteSessionConfirm(ctx, payload.slice("confirm:".length));
++            return true;
++        }
++        if (payload.startsWith("cancel:")) {
++            const sessionId = payload.slice("cancel:".length);
++            clearAllInteractionState("delses_cancelled");
++            await ctx.answerCallbackQuery();
++            await ctx.editMessageText(t("delses.cancelled"));
++            return true;
++        }
++        await askDeleteSessionConfirmation(ctx, payload);
++    }
++    catch (error) {
++        clearAllInteractionState("delses_error");
++        logger.error("[DeleteSession] Error handling callback:", error);
++        await failure(ctx, "delses.error");
++    }
++    return true;
++}
++async function handleDeleteSessionPage(ctx, rawPage) {
++    const page = Number(rawPage);
++    if (!Number.isInteger(page) || page < 0) {
++        await ctx.answerCallbackQuery({ text: t("callback.processing_error") });
++        return;
++    }
++    const currentProject = getCurrentProject();
++    if (!currentProject) {
++        clearAllInteractionState("delses_project_missing");
++        await failure(ctx, "sessions.select_project_first");
++        return;
++    }
++    try {
++        const pageSize = config.bot.sessionsListLimit;
++        const pageData = await loadSessionPage(currentProject.worktree, page, pageSize);
++        if (pageData.sessions.length === 0) {
++            await ctx.answerCallbackQuery({ text: t("sessions.page_empty_callback") });
++            return;
++        }
++        const keyboard = buildDeleteSessionKeyboard(pageData, pageSize);
++        appendInlineMenuCancelButton(keyboard, "delses");
++        await ctx.answerCallbackQuery();
++        await ctx.editMessageText(t("delses.select_page", { page: page + 1 }), {
++            reply_markup: keyboard,
++        });
++    }
++    catch (error) {
++        logger.error("[DeleteSession] Error loading sessions page:", error);
++        await ctx.answerCallbackQuery({ text: t("sessions.page_load_error_callback") });
++    }
++}
++async function fetchSessionById(sessionId) {
++    const currentProject = getCurrentProject();
++    if (!currentProject) {
++        return null;
++    }
++    const { data: session, error } = await opencodeClient.session.get({
++        sessionID: sessionId,
++        directory: currentProject.worktree,
++    });
++    if (error || !session) {
++        return null;
++    }
++    return session;
++}
++async function askDeleteSessionConfirmation(ctx, sessionId) {
++    if (!sessionId) {
++        await ctx.answerCallbackQuery({ text: t("callback.processing_error") });
++        return;
++    }
++    const session = await fetchSessionById(sessionId);
++    if (!session) {
++        await ctx.answerCallbackQuery({ text: t("delses.not_found") });
++        return;
++    }
++    const keyboard = new InlineKeyboard()
++        .text(t("delses.button.yes"), `${DELETE_SESSION_CONFIRM_CALLBACK_PREFIX}${sessionId}`)
++        .text(t("delses.button.no"), `${DELETE_SESSION_CANCEL_CALLBACK_PREFIX}${sessionId}`);
++    await ctx.answerCallbackQuery();
++    await ctx.editMessageText(t("delses.confirm", { title: session.title }), {
++        reply_markup: keyboard,
++    });
++}
++async function handleDeleteSessionConfirm(ctx, sessionId) {
++    if (!sessionId) {
++        await ctx.answerCallbackQuery({ text: t("callback.processing_error") });
++        return;
++    }
++    const session = await fetchSessionById(sessionId);
++    const { error } = await opencodeClient.session.delete({ sessionID: sessionId });
++    if (error) {
++        logger.error("[DeleteSession] Failed to delete session:", error);
++        await ctx.answerCallbackQuery({ text: t("delses.delete_error") });
++        return;
++    }
++    logger.info(`[DeleteSession] Session deleted: id=${sessionId}, title="${session?.title ?? "unknown"}"`);
++    const current = getCurrentSession();
++    if (current && current.id === sessionId) {
++        logger.info("[DeleteSession] Deleted session was the active one; clearing local session state");
++        detachAttachedSession("session_deleted");
++        clearSession();
++    }
++    clearAllInteractionState("delses_deleted");
++    await ctx.answerCallbackQuery();
++    await ctx.editMessageText(t("delses.deleted", { title: session?.title ?? sessionId }));
++}

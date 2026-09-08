@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Vault-backed localhost OpenCode server for the Telegram bridge.
+set -euo pipefail
+umask 077
+
+ROOT=/workspace/data/opencode-telegram
+OPENCODE_EXE=/workspace/.opencode/bin/opencode
+SERVER_PW="$(assistant credentials reveal --service opencode_proxy --field server_password 2>/dev/null || true)"
+API_KEY="$(assistant credentials reveal --service opencode --field api_key 2>/dev/null || true)"
+
+if [ -z "$SERVER_PW" ] || [ -z "$API_KEY" ]; then
+  echo "opencode-telegram-server: required vault credentials unavailable" >&2
+  exit 1
+fi
+
+mkdir -p "$ROOT"/{opencode-data,opencode-config,opencode-cache,logs}
+export HOME=/workspace
+export OPENCODE_SERVER_PASSWORD="$SERVER_PW"
+export OPENCODE_API_KEY="$API_KEY"
+export XDG_DATA_HOME="$ROOT/opencode-data"
+export XDG_CONFIG_HOME="$ROOT/opencode-config"
+export XDG_CACHE_HOME="$ROOT/opencode-cache"
+
+exec "$OPENCODE_EXE" serve \
+  --hostname 127.0.0.1 \
+  --port 4096 \
+  --log-level INFO

@@ -1,0 +1,34 @@
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/pinned/pinned-message-manager.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/pinned/pinned-message-manager.js
+@@ -717,8 +717,14 @@
+             return;
+         }
+         try {
+-            // Unpin all messages (ensures clean state)
+-            await this.api.unpinAllChatMessages(this.chatId).catch(() => { });
++            // Unpin only our own previously-pinned status message, not every
++            // message in the chat. Telegram's unpinAllChatMessages is tightly
++            // rate-limited per chat; calling it here stalls the handler behind
++            // 429 retries long enough for Telegram to expire button callbacks.
++            const oldId = this.state?.messageId;
++            if (oldId) {
++                await this.api.unpinChatMessage(this.chatId, oldId).catch(() => { });
++            }
+             this.state.messageId = null;
+             this.lastRenderedMessageText = null;
+             this.pendingUpdate = false;
+@@ -766,8 +772,12 @@
+             return;
+         }
+         try {
+-            // Unpin all messages
+-            await this.api.unpinAllChatMessages(this.chatId).catch(() => { });
++            // Unpin only the previously-pinned status message, if any. Captured
++            // before state nulls messageId below.
++            const oldClearId = this.state?.messageId;
++            if (oldClearId) {
++                await this.api.unpinChatMessage(this.chatId, oldClearId).catch(() => { });
++            }
+             // Reset state
+             this.state.messageId = null;
+             this.state.sessionId = null;

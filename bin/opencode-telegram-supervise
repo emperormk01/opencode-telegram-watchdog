@@ -1,0 +1,216 @@
+#!/usr/bin/env bash
+# Probe-based supervisor for localhost OpenCode + the Telegram bridge.
+# The supervisor itself is idempotent and safe to launch on every daemon boot.
+set -u
+umask 077
+
+ROOT=/workspace/data/opencode-telegram
+RUN="$ROOT/run"
+LOG="$ROOT/logs"
+SUP_PID="$RUN/supervisor.pid"
+SERVER_PID="$RUN/opencode-server.pid"
+BRIDGE_PID="$RUN/telegram-bridge.pid"
+SERVER_URL=http://127.0.0.1:4096/
+INTERVAL=${OPENCODE_TELEGRAM_SUPERVISOR_INTERVAL:-15}
+SERVER_PW=""
+for _pw_try in $(seq 1 24); do
+  SERVER_PW="$(assistant credentials reveal --service opencode_proxy --field server_password 2>/dev/null || true)"
+  [ -n "$SERVER_PW" ] && break
+  sleep 5
+done
+mkdir -p "$RUN" "$LOG"
+if [ -z "$SERVER_PW" ]; then
+  echo "[$(date -Is)] OpenCode server password unavailable from vault after retries" >> "$LOG/supervisor.log"
+  exit 1
+fi
+
+proc_cmdline() {
+  local pid="$1"
+  [ -r "/proc/$pid/cmdline" ] || return 1
+  tr '\0' ' ' < "/proc/$pid/cmdline"
+}
+
+is_supervisor_pid() {
+  local pid="$1" cmd
+  cmd="$(proc_cmdline "$pid" 2>/dev/null || true)"
+  [[ "$cmd" == *"opencode-telegram-supervise"* ]]
+}
+
+pid_alive() {
+  local pid="$1"
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+read_pid() {
+  local file="$1" value=""
+  [ -r "$file" ] || return 1
+  value="$(cat "$file" 2>/dev/null || true)"
+  case "$value" in
+    ''|*[!0-9]*) return 1 ;;
+    *) printf '%s\n' "$value" ;;
+  esac
+}
+
+stop_group_from_file() {
+  local file="$1" pid
+  pid="$(read_pid "$file" || true)"
+  [ -n "$pid" ] || { rm -f "$file"; return; }
+  if pid_alive "$pid"; then
+    kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+    for _ in 1 2 3 4 5; do
+      pid_alive "$pid" || break
+      sleep 1
+    done
+    pid_alive "$pid" && kill -KILL -- "-$pid" 2>/dev/null || true
+  fi
+  rm -f "$file"
+}
+
+# Only one supervisor may own this runtime. A stale PID file is harmless.
+if old="$(read_pid "$SUP_PID" || true)"; then
+  if pid_alive "$old" && is_supervisor_pid "$old" && [ "$old" != "$$" ]; then
+    exit 0
+  fi
+fi
+echo "$$" > "$SUP_PID"
+
+shutdown() {
+  rm -f "$SUP_PID"
+  exit 0
+}
+trap shutdown INT TERM EXIT
+
+server_healthy() {
+  curl -fsS --max-time 3 -u "opencode:$SERVER_PW" "$SERVER_URL" >/dev/null 2>&1
+}
+
+server_pid_any() {
+  local pid
+  pid="$(read_pid "$SERVER_PID" || true)"
+  if [ -n "$pid" ] && pid_alive "$pid"; then
+    printf '%s\n' "$pid"
+    return 0
+  fi
+  pgrep -f "opencode serve" 2>/dev/null | head -1 || true
+}
+
+server_process_ok() {
+  local pid cmd
+  pid="$(read_pid "$SERVER_PID" || true)"
+  [ -n "$pid" ] || return 1
+  pid_alive "$pid" || return 1
+  cmd="$(proc_cmdline "$pid" 2>/dev/null || true)"
+  [[ "$cmd" == *"opencode"*"serve"* ]]
+}
+
+bridge_process_ok() {
+  local pid cmd
+  pid="$(read_pid "$BRIDGE_PID" || true)"
+  [ -n "$pid" ] || return 1
+  pid_alive "$pid" || return 1
+  cmd="$(proc_cmdline "$pid" 2>/dev/null || true)"
+  [[ "$cmd" == *"opencode-telegram-bot"*"dist/cli.js"* ]]
+}
+
+start_server() {
+  if server_healthy; then
+    return 0
+  fi
+  if server_process_ok; then
+    stop_group_from_file "$SERVER_PID"
+  else
+    rm -f "$SERVER_PID"
+  fi
+  echo "[$(date -Is)] starting localhost OpenCode server" >> "$LOG/supervisor.log"
+  setsid nohup /workspace/bin/opencode-telegram-server >> "$LOG/opencode-server.log" 2>&1 < /dev/null &
+  echo "$!" > "$SERVER_PID"
+}
+
+start_bridge() {
+  if bridge_process_ok; then
+    return 0
+  fi
+  if [ -r "$BRIDGE_PID" ]; then
+    stop_group_from_file "$BRIDGE_PID"
+  fi
+  echo "[$(date -Is)] starting Telegram bridge" >> "$LOG/supervisor.log"
+  setsid nohup /workspace/bin/opencode-telegram-bridge >> "$LOG/telegram-bridge.log" 2>&1 < /dev/null &
+  echo "$!" > "$BRIDGE_PID"
+}
+
+server_config_ok() {
+  local pid managed
+  pid="$(server_pid_any)"
+  [ -n "$pid" ] || return 0
+  managed="$(read_pid "$SERVER_PID" || true)"
+  # Our own launcher-spawned server always has the right env.
+  [ "$managed" = "$pid" ] && return 0
+  # A foreign server (e.g. spawned by the bridge auto-restart) must still run
+  # against OUR config/db dirs, or sessions land in the wrong DB and the
+  # global AGENTS.md is never loaded.
+  tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null \
+    | grep -qx "XDG_CONFIG_HOME=$ROOT/opencode-config"
+}
+
+stop_foreign_server() {
+  local pid managed
+  pid="$(server_pid_any)"
+  [ -n "$pid" ] || return 0
+  managed="$(read_pid "$SERVER_PID" || true)"
+  [ "$managed" = "$pid" ] && return 0
+  kill -TERM "$pid" 2>/dev/null || true
+  for _ in 1 2 3 4 5; do pid_alive "$pid" || break; sleep 1; done
+  pid_alive "$pid" && kill -KILL "$pid" 2>/dev/null || true
+}
+
+# Periodic safety backup of the persistent OpenCode DB (WAL-safe via node:sqlite).
+DB_FILE="$ROOT/opencode-data/opencode/opencode.db"
+BACKUP_DIR="$ROOT/backups"
+NODE_BIN=/workspace/runtime/node/bin/node
+maybe_backup_db() {
+  [ -f "$DB_FILE" ] || return 0
+  mkdir -p "$BACKUP_DIR"
+  local latest age
+  latest="$(ls -1t "$BACKUP_DIR"/opencode-*.db 2>/dev/null | head -1)"
+  if [ -n "$latest" ]; then
+    age=$(( $(date +%s) - $(stat -c %Y "$latest") ))
+    [ "$age" -lt 21600 ] && return 0
+  fi
+  echo "[$(date -Is)] backing up OpenCode DB" >> "$LOG/supervisor.log"
+  "$NODE_BIN" -e 'const{DatabaseSync}=require("node:sqlite");const s=new DatabaseSync(process.argv[1],{readOnly:true});s.exec("VACUUM INTO \x27"+process.argv[2]+"\x27");s.close();' \
+    "$DB_FILE" "$BACKUP_DIR/opencode-$(date +%Y%m%d-%H%M%S).db" >> "$LOG/supervisor.log" 2>&1 || true
+  # keep the newest 10 backups
+  ls -1t "$BACKUP_DIR"/opencode-*.db 2>/dev/null | tail -n +11 | xargs -r rm -f
+}
+
+# Converge quickly on first boot.
+for _ in 1 2 3 4 5 6; do
+  start_server
+  server_healthy && break
+  sleep 2
+done
+if server_healthy; then
+  start_bridge
+else
+  echo "[$(date -Is)] OpenCode server did not become healthy" >> "$LOG/supervisor.log"
+fi
+
+while :; do
+  if ! server_healthy; then
+    echo "[$(date -Is)] OpenCode health probe failed; converging" >> "$LOG/supervisor.log"
+    start_server
+  elif ! server_config_ok; then
+    echo "[$(date -Is)] OpenCode server has wrong config/db paths; replacing it" >> "$LOG/supervisor.log"
+    stop_foreign_server
+    start_server
+  else
+    if ! bridge_process_ok; then
+      echo "[$(date -Is)] Telegram bridge process down; converging" >> "$LOG/supervisor.log"
+      start_bridge
+    else
+      echo "[$(date -Is)] OK: server healthy, bridge running" >> "$LOG/supervisor.log"
+    fi
+  fi
+  maybe_backup_db
+  sleep "$INTERVAL"
+done

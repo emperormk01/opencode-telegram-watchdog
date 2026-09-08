@@ -1,0 +1,102 @@
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/handlers/prompt.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/handlers/prompt.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/handlers/prompt.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/handlers/prompt.js
+@@ -46,6 +46,54 @@
+     promptResponseModes.delete(sessionId);
+     return responseMode;
+ }
++
++function isSessionNotFoundError(error) {
++    if (!error) {
++        return false;
++    }
++    // Opencode returns NotFoundError with `Session not found: <id>` when the
++    // server has restarted and its in-memory session store was wiped (e.g. a
++    // Telegram `/stop` + `/start`). The bridge must not keep reusing the stale
++    // id forever — detect it and recreate a fresh session.
++    const name = error.name;
++    const data = error.data;
++    const message = typeof data === "object" && data !== null ? data.message : null;
++    if (name === "NotFoundError" && typeof message === "string" && /session/i.test(message) && /not found/i.test(message)) {
++        return true;
++    }
++    const raw = typeof error === "string"
++        ? error
++        : `${JSON.stringify(error)}`;
++    return /session/i.test(raw) && /not\s+found/i.test(raw);
++}
++
++// Recreate the session that a freshly-restarted OpenCode server no longer
++// knows about, so subsequent prompts work again without a manual /new.
++async function recoverStaleSession() {
++    const currentProject = getCurrentProject();
++    if (!currentProject) {
++        return null;
++    }
++    logger.warn("[Bot] Stale session detected (OpenCode restarted); recreating session");
++    const { data: session, error } = await opencodeClient.session.create({
++        directory: currentProject.worktree,
++    });
++    if (error || !session) {
++        logger.error("[Bot] Failed to recreate session after stale-session detection:", error ?? "no data");
++        return null;
++    }
++    const sessionInfo = {
++        id: session.id,
++        title: session.title,
++        directory: currentProject.worktree,
++    };
++    setCurrentSession(sessionInfo);
++    clearAllInteractionState("session_recreated");
++    await ingestSessionInfoForCache(session);
++    logger.info(`[Bot] Recreated stale session: id=${session.id}`);
++    return sessionInfo;
++}
++
+ async function isSessionBusy(sessionId, directory) {
+     try {
+         const { data, error } = await opencodeClient.session.status({ directory });
+@@ -278,6 +326,16 @@
+                     logger.error("[Bot] OpenCode API returned an error for session.promptAsync", promptErrorLogContext);
+                     logger.error("[Bot] session.promptAsync error details:", details);
+                     logger.error("[Bot] session.promptAsync raw API error object:", error);
++                    // If the OpenCode server restarted and lost our session, recreate
++                    // a fresh one so the next prompt works instead of erroring forever.
++                    if (isSessionNotFoundError(error)) {
++                        recoverStaleSession().then((recovered) => {
++                            if (recovered && attachManager.isAttachedSession(currentSession.id)) {
++                                void bot.api.sendMessage(ctx.chat.id, t("bot.session_recreated_retry")).catch(() => { });
++                            }
++                        });
++                        return;
++                    }
+                     // Send user-friendly error via API directly because ctx is no longer available
+                     if (attachManager.isAttachedSession(currentSession.id)) {
+                         void bot.api.sendMessage(ctx.chat.id, t("bot.prompt_send_error")).catch(() => { });
+@@ -295,7 +353,14 @@
+                 logger.error("[Bot] session.promptAsync background task failed", promptErrorLogContext);
+                 logger.error("[Bot] session.promptAsync background failure details:", details);
+                 logger.error("[Bot] session.promptAsync raw background error object:", error);
+-                if (attachManager.isAttachedSession(currentSession.id)) {
++                // Recover if the OpenCode server restarted and lost our session.
++                if (isSessionNotFoundError(error)) {
++                    recoverStaleSession().then((recovered) => {
++                        if (recovered && attachManager.isAttachedSession(currentSession.id)) {
++                            void bot.api.sendMessage(ctx.chat.id, t("bot.session_recreated_retry")).catch(() => { });
++                        }
++                    });
++                } else if (attachManager.isAttachedSession(currentSession.id)) {
+                     void bot.api.sendMessage(ctx.chat.id, t("bot.prompt_send_error")).catch(() => { });
+                 }
+             },
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js
+@@ -61,6 +61,7 @@
+     "bot.session_busy": "⏳ Agent is already running a task. Wait for completion or use /abort to interrupt current run.",
+     "bot.session_reset_project_mismatch": "⚠️ Active session does not match the selected project, so it was reset. Use /sessions to pick one or /new to create a new session.",
+     "bot.prompt_send_error": "Failed to send request to OpenCode.",
++    "bot.session_recreated_retry": "🔄 OpenCode restarted, so your session was recreated. Please resend your message.",
+     "bot.session_error": "🔴 OpenCode returned an error: {message}",
+     "bot.session_retry": "🔁 {message}\n\nProvider keeps returning the same error on repeated retries. Use /abort to abort.",
+     "bot.external_user_input": "External user input",
