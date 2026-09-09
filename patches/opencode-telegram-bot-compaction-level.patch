@@ -1,0 +1,249 @@
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/routers/command-router.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/routers/command-router.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/routers/command-router.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/routers/command-router.js
+@@ -7,6 +7,7 @@
+ import { lsCommand } from "../commands/ls-command.js";
+ import { sessionsCommand } from "../commands/sessions-command.js";
+ import { deleteSessionCommand } from "../commands/delete-session-command.js";
++import { compactionLevelCommand } from "../commands/compaction-level-command.js";
+ import { messagesCommand } from "../commands/messages-command.js";
+ import { newCommand } from "../commands/new-command.js";
+ import { abortCommand } from "../commands/abort-command.js";
+@@ -71,6 +72,7 @@
+     bot.command("ls", lsCommand);
+     bot.command("sessions", sessionsCommand);
+     bot.command("delete_session", deleteSessionCommand);
++    bot.command("compaction_level", compactionLevelCommand);
+     bot.command("messages", messagesCommand);
+     bot.command("new", (ctx) => newCommand(ctx, { bot, ensureEventSubscription: deps.ensureEventSubscription }));
+     bot.command("abort", abortCommand);
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/callbacks/callback-router.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/callbacks/callback-router.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/callbacks/callback-router.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/callbacks/callback-router.js
+@@ -5,6 +5,7 @@
+ import { handleCommandsCallback } from "./command-catalog-callback-handler.js";
+ import { handleCompactConfirm } from "./context-control-callback-handler.js";
+ import { handleDeleteSessionCallback } from "./delete-session-callback-handler.js";
++import { handleCompactionLevelCallback } from "./compaction-level-callback-handler.js";
+ import { handleLsCallback, handleOpenCallback } from "./file-browser-callback-handler.js";
+ import { handleInlineMenuCancel } from "./inline-menu-cancel-callback-handler.js";
+ import { handleMcpsCallback } from "./mcp-catalog-callback-handler.js";
+@@ -57,6 +58,10 @@
+             { name: "compact", handlers: [handleCompactConfirm], errorScope: "interaction" },
+         ],
+         [
++            "cplvl",
++            { name: "cplvl", handlers: [handleCompactionLevelCallback], errorScope: "interaction" },
++        ],
++        [
+             "delses",
+             { name: "delses", handlers: [handleDeleteSessionCallback], errorScope: "interaction" },
+         ],
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/definitions.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/definitions.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/definitions.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/definitions.js
+@@ -21,6 +21,7 @@
+     { command: "mcps", descriptionKey: "cmd.description.mcps" },
+     { command: "opencode_restart", descriptionKey: "cmd.description.opencode_restart" },
+     { command: "delete_session", descriptionKey: "cmd.description.delete_session" },
++    { command: "compaction_level", descriptionKey: "cmd.description.compaction_level" },
+     { command: "open", descriptionKey: "cmd.description.open" },
+     { command: "ls", descriptionKey: "cmd.description.ls" },
+     { command: "help", descriptionKey: "cmd.description.help" },
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/menus/inline-menu.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/menus/inline-menu.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/menus/inline-menu.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/menus/inline-menu.js
+@@ -15,6 +15,7 @@
+     "worktree",
+     "settings",
+     "delses",
++    "cplvl",
+ ];
+ export function isInlineMenuKind(value) {
+     return INLINE_MENU_KINDS.includes(value);
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js
+@@ -17,6 +17,7 @@
+     "cmd.description.opencode_stop": "Stop OpenCode server",
+     "cmd.description.opencode_restart": "Safely restart Telegram bridge",
+     "cmd.description.delete_session": "Delete a session from the database",
++    "cmd.description.compaction_level": "Set auto-compaction trigger level",
+     "cmd.description.ls": "List directory contents",
+     "cmd.description.help": "Help",
+     "callback.unknown_command": "Unknown command",
+@@ -170,6 +171,11 @@
+     "delses.not_found": "Session not found (it may already be deleted)",
+     "delses.delete_error": "🔴 Failed to delete the session",
+     "delses.error": "🔴 Failed to delete the session",
++    "cplvl.select": "📦 Compaction level\n\nPick the percentage of the model's context window at which OpenCode should auto-compact.\n\nCurrently: {current}",
++    "cplvl.set": "✅ Auto-compaction will trigger at {percent}% of the context window ({reserved} reserved tokens).",
++    "cplvl.no_model": "🔴 No active model selected.",
++    "cplvl.apply_failed": "🔴 Failed to apply the compaction level. OpenCode server may be unavailable.",
++    "cplvl.error": "🔴 Failed to open the compaction level menu.",
+     "sessions.preview.empty": "No recent messages.",
+     "sessions.preview.title": "Recent messages:",
+     "sessions.preview.you": "You:",
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/compaction-level-command.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/compaction-level-command.js
+new file mode 100644
+--- /dev/null
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/compaction-level-command.js
+@@ -0,0 +1,41 @@
++import { InlineKeyboard } from "grammy";
++import { replyWithInlineMenu } from "../menus/inline-menu.js";
++import { isForegroundBusy } from "../../app/services/run-control-service.js";
++import { replyBusyBlocked } from "../messages/busy-blocked-renderer.js";
++import { logger } from "../../utils/logger.js";
++import { t } from "../../i18n/index.js";
++export const COMPACTION_LEVEL_CALLBACK_PREFIX = "cplvl:";
++export const COMPACTION_LEVEL_SET_PREFIX = `${COMPACTION_LEVEL_CALLBACK_PREFIX}set:`;
++export const COMPACTION_LEVEL_PERCENTS = [50, 60, 70, 80, 90];
++export async function buildCompactionLevelMenuView(currentPercent) {
++    const keyboard = new InlineKeyboard();
++    COMPACTION_LEVEL_PERCENTS.forEach((percent, index) => {
++        keyboard.text(`${percent}%`, `${COMPACTION_LEVEL_SET_PREFIX}${percent}`);
++        if ((index + 1) % 3 === 0) {
++            keyboard.row();
++        }
++    });
++    return {
++        text: t("cplvl.select", { current: currentPercent === null ? "unknown" : `${currentPercent}%` }),
++        keyboard,
++    };
++}
++export async function compactionLevelCommand(ctx) {
++    try {
++        if (isForegroundBusy()) {
++            await replyBusyBlocked(ctx);
++            return;
++        }
++        logger.debug("[CompactionLevel] Opening compaction level menu");
++        const { text, keyboard } = await buildCompactionLevelMenuView(null);
++        await replyWithInlineMenu(ctx, {
++            menuKind: "cplvl",
++            text,
++            keyboard,
++        });
++    }
++    catch (error) {
++        logger.error("[CompactionLevel] Error opening menu:", error);
++        await ctx.reply(t("cplvl.error"));
++    }
++}
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/callbacks/compaction-level-callback-handler.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/callbacks/compaction-level-callback-handler.js
+new file mode 100644
+--- /dev/null
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/callbacks/compaction-level-callback-handler.js
+@@ -0,0 +1,112 @@
++import { opencodeClient } from "../../opencode/client.js";
++import { getCurrentModel } from "../../app/stores/settings-store.js";
++import { getModelContextLimit } from "../../app/services/model-context-limit-service.js";
++import { clearAllInteractionState } from "../../app/managers/interaction-manager.js";
++import { ensureActiveInlineMenu } from "../menus/inline-menu.js";
++import { isForegroundBusy } from "../../app/services/run-control-service.js";
++import { replyBusyBlocked } from "../messages/busy-blocked-renderer.js";
++import { COMPACTION_LEVEL_CALLBACK_PREFIX, COMPACTION_LEVEL_SET_PREFIX, COMPACTION_LEVEL_PERCENTS, } from "../commands/compaction-level-command.js";
++import { logger } from "../../utils/logger.js";
++import { t } from "../../i18n/index.js";
++import { notify, failure } from "./feedback.js";
++import fs from "node:fs";
++import path from "node:path";
++function getConfigFilePath() {
++    const xdgConfigHome = process.env.XDG_CONFIG_HOME;
++    if (!xdgConfigHome) {
++        return null;
++    }
++    return path.join(xdgConfigHome, "opencode", "opencode.jsonc");
++}
++function loadConfigFile(filePath) {
++    if (!fs.existsSync(filePath)) {
++        return { $schema: "https://opencode.ai/config.json" };
++    }
++    const text = fs.readFileSync(filePath, "utf8");
++    try {
++        const parsed = JSON.parse(text);
++        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
++    }
++    catch (err) {
++        logger.warn(`[CompactionLevel] Config file not valid JSON (${filePath}); treating as empty:`, err);
++        return {};
++    }
++}
++function persistCompactionConfig(reserved) {
++    const filePath = getConfigFilePath();
++    if (!filePath) {
++        return false;
++    }
++    try {
++        const parsed = loadConfigFile(filePath);
++        parsed.compaction = parsed.compaction ?? {};
++        parsed.compaction.reserved = reserved;
++        fs.writeFileSync(filePath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
++        return true;
++    }
++    catch (err) {
++        logger.error("[CompactionLevel] Failed to persist compaction config:", err);
++        return false;
++    }
++}
++async function currentContextLimit() {
++    const model = getCurrentModel();
++    if (!model?.providerID || !model?.modelID) {
++        return null;
++    }
++    return getModelContextLimit(model.providerID, model.modelID);
++}
++export async function handleCompactionLevelCallback(ctx) {
++    const data = ctx.callbackQuery?.data;
++    if (!data || !data.startsWith(COMPACTION_LEVEL_CALLBACK_PREFIX)) {
++        return false;
++    }
++    if (isForegroundBusy()) {
++        await replyBusyBlocked(ctx);
++        return true;
++    }
++    const isActiveMenu = await ensureActiveInlineMenu(ctx, "cplvl");
++    if (!isActiveMenu) {
++        return true;
++    }
++    if (!data.startsWith(COMPACTION_LEVEL_SET_PREFIX)) {
++        await notify(ctx, "callback.processing_error");
++        return true;
++    }
++    const rawPercent = data.slice(COMPACTION_LEVEL_SET_PREFIX.length);
++    const percent = Number(rawPercent);
++    if (!COMPACTION_LEVEL_PERCENTS.includes(percent)) {
++        await notify(ctx, "callback.processing_error");
++        return true;
++    }
++    try {
++        const contextLimit = await currentContextLimit();
++        if (!contextLimit) {
++            clearAllInteractionState("cplvl_no_model");
++            await failure(ctx, "cplvl.no_model");
++            return true;
++        }
++        const reserved = Math.round((contextLimit * (100 - percent)) / 100);
++        const { error } = await opencodeClient.config.update({
++            config: { compaction: { reserved } },
++        });
++        if (error) {
++            logger.error("[CompactionLevel] Apply failed:", error);
++            await notify(ctx, "cplvl.apply_failed");
++            return true;
++        }
++        const persisted = persistCompactionConfig(reserved);
++        if (!persisted) {
++            logger.warn("[CompactionLevel] Applied live but could not persist to config file");
++        }
++        clearAllInteractionState("cplvl_set");
++        await ctx.answerCallbackQuery();
++        await ctx.editMessageText(t("cplvl.set", { percent, reserved: reserved.toLocaleString() }));
++    }
++    catch (error) {
++        clearAllInteractionState("cplvl_error");
++        logger.error("[CompactionLevel] Error applying compaction level:", error);
++        await failure(ctx, "cplvl.apply_failed");
++    }
++    return true;
++}

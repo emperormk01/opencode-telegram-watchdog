@@ -3,10 +3,10 @@
 # The daemon environment (HOME=/data, BUN_INSTALL=/data/.bun) makes tooling
 # write regenerable caches into /data, which is invisible to du -x /workspace
 # but consumes the shared volume. This script prunes those caches at boot.
-# It NEVER touches /data/system (live platform root) or /data/.vellum.
+# It NEVER touches /data/system (live platform root) or /data/.cloud-vm.
 set -u
 
-KEEP="/data/system /data/.vellum"
+KEEP="/data/system /data/.cloud-vm"
 for target in /data/.bun /data/.npm /data/.opencode /data/.cache /data/.config /data/.local; do
   if [ -e "$target" ]; then
     rm -rf "$target"

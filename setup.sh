@@ -131,6 +131,15 @@ echo ">> Applying delete-session-command patch..."
 patch -p1 -d "$WORKSPACE" --forward --silent < "$REPO/patches/opencode-telegram-bot-delete-session-command.patch" \
   || echo "   (patch already applied or no-op — continuing)"
 
+# Compaction-level command: /compaction_level shows an inline keyboard of
+# context-window fill percentages (50-90%); picking one computes the matching
+# compaction.reserved token budget for the current model, applies it live to
+# the running OpenCode server via PATCH /config (no restart), and persists it
+# to the server's opencode.jsonc so it survives restarts.
+echo ">> Applying compaction-level patch..."
+patch -p1 -d "$WORKSPACE" --forward --silent < "$REPO/patches/opencode-telegram-bot-compaction-level.patch" \
+  || echo "   (patch already applied or no-op — continuing)"
+
 # ---------------------------------------------------------------------------
 # 4. Collect vault secrets (never in chat; secure prompts)
 # ---------------------------------------------------------------------------

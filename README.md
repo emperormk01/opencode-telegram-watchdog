@@ -38,6 +38,25 @@ the full walkthrough and all gotchas.
 - Supervisor log: `logs/supervisor.log` (healthy state logs
   `OK: server healthy, bridge running`)
 
+## Supported environments
+
+Tested on x86_64 Linux cloud VMs. Our deploy:
+
+| Spec | Value |
+|------|-------|
+| CPU | Intel Xeon Platinum 8581C @ 2.30GHz (4 cores) |
+| RAM | 6.1 GiB |
+| OS | Debian GNU/Linux 13 (trixie) |
+| Disk | 96G root, 5.9G virtiofs (`/workspace` + `/data` shared) |
+
+Also works on GCP, AWS, Azure, Hetzner, DigitalOcean with >=4 GiB RAM.
+Minimum: 2 vCPU, 4 GiB RAM, 20G disk, Node >=22.14. See `INSTALL.md` for
+full specs.
+
+**Windows:** Use WSL2. The scripts are bash-only with Linux paths. Clone
+inside WSL2 (not `/mnt/c/`), install Node inside WSL2, run `setup.sh`.
+See `INSTALL.md` > Windows (WSL2) for full instructions and gotchas.
+
 ## Secrets
 
 No secrets are stored in these scripts. Everything is resolved at runtime via

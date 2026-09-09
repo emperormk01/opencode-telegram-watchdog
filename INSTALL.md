@@ -1,6 +1,6 @@
 # INSTALL.md — OpenCode Telegram Startup Chain
 
-Clean-room install guide for bringing up the boot chain on a fresh Vellum
+Clean-room install guide for bringing up the boot chain on a fresh cloud VM
 Assistant workspace. Written from the actual first deployment — every
 section below is a gotcha that bit us the first time, so read the whole thing
 before running anything.
@@ -9,6 +9,92 @@ before running anything.
 `127.0.0.1:4096` and a Telegram bot bridge is connected, with a supervisor
 keeping both alive. Healthy steady state = the supervisor log repeats
 `OK: server healthy, bridge running` on a 15s cadence.
+
+---
+
+## Supported environments
+
+**Tested on:**
+
+| Spec | Value |
+|------|-------|
+| CPU | Intel Xeon Platinum 8581C @ 2.30GHz (4 cores) |
+| RAM | 6.1 GiB |
+| OS | Debian GNU/Linux 13 (trixie) |
+| Disk | 96G root, 5.9G virtiofs (`/workspace` + `/data` shared) |
+| Node | v24.3.0 (real binary, not the Bun shim) |
+
+**Also works on:**
+
+- Any x86_64 Linux cloud VM with >=4 GiB RAM and >=20G disk
+- GCP `e2-standard-4` or `c3-standard-4` (4 vCPU, 16 GiB)
+- AWS `t3.xlarge` or `c6i.xlarge` (4 vCPU, 16 GiB)
+- Azure `Standard_D4s_v5` (4 vCPU, 16 GiB)
+- Hetzner CPX31 or CCX22 (4 vCPU, 8-16 GiB)
+- DigitalOcean `s-4vcpu-8gb` or `s-4vcpu-16gb`
+
+**Minimum requirements:**
+
+- x86_64 Linux (ARM not tested)
+- 2 vCPU / 4 GiB RAM (bridge + server idle at ~300 MiB)
+- 20G free disk (Node binary + bridge + OpenCode CLI)
+- Node.js >=22.14 (real binary, not Bun shim)
+- `curl`, `tar`, `patch` available
+
+### Windows (WSL2)
+
+The scripts are bash-only and use Linux paths. On Windows, use WSL2 - no
+script rewrites needed.
+
+**Prerequisites:**
+
+1. Install WSL2 (PowerShell as Admin):
+   ```
+   wsl --install
+   ```
+   Restart when prompted. Default distro is Ubuntu.
+
+2. Open WSL2 terminal and update:
+   ```
+   sudo apt update && sudo apt upgrade -y
+   ```
+
+3. Install dependencies:
+   ```
+   sudo apt install -y curl tar patch git
+   ```
+
+4. Install Node.js >=22.14 inside WSL2 (not on Windows):
+   ```
+   curl -fsSL https://nodejs.org/dist/v24.3.0/node-v24.3.0-linux-x64.tar.xz | sudo tar -xJf - -C /usr/local --strip-components=1
+   node --version  # v24.3.0+
+   ```
+
+5. Clone and run inside WSL2:
+   ```
+   git clone https://github.com/emperormk01/opencode-telegram-watchdog.git
+   cd opencode-telegram-watchdog
+   ./setup.sh
+   ```
+
+**Gotchas:**
+
+- Do NOT clone into `/mnt/c/...` (Windows filesystem). Use WSL2 native paths
+  like `~/opencode-telegram-startup` or `/home/youruser/...`. File I/O across
+  the WSL2/Windows boundary is ~10x slower and breaks symlink-heavy installs.
+- The OpenCode CLI binary must be the Linux build, not the Windows `.exe`.
+  The `setup.sh` fetches the correct one automatically.
+- Windows Defender / antivirus may scan WSL2 I/O and slow things down. Add
+  your WSL2 install directory to the exclusion list if it feels sluggish.
+- WSL2 RAM usage is dynamic by default. To cap it at 4 GiB, create
+  `%USERPROFILE%\.wslconfig` on Windows:
+  ```
+  [wsl2]
+  memory=4GB
+  swap=2GB
+  ```
+- USB devices (e.g. for Yubikey auth) need `usbipd` on Windows side. Not
+  required for this stack but mentioned if you use hardware keys for GitHub.
 
 ---
 
@@ -372,6 +458,48 @@ package reinstall, reapply it (after 6e) with:
 ```bash
 cd /workspace
 patch -p1 < opencode-telegram-startup/patches/opencode-telegram-bot-delete-session-command.patch
+```
+
+### 6g. Compaction-level command
+
+`patches/opencode-telegram-bot-compaction-level.patch` (applies **after** 6f)
+adds the `/compaction_level` Telegram command, which lets you choose **when**
+OpenCode auto-compacts.
+
+How OpenCode's auto-compaction trigger works: it fires when the session's
+tokens reach the usable context window, where
+`usable = context_limit - compaction.reserved`. `reserved` defaults to
+`min(20_000, model.maxOutputTokens)` (so for `mimo-v2.5-free`'s 200k window it
+triggers at ~90%). There is no per-percentage config key, so this command
+translates a chosen context-fill percentage into the matching `reserved` token
+budget for the model in use:
+
+| Trigger at | reserved (mimo-v2.5-free, 200k) |
+|-----------|--------|
+| 50%       | 100,000 |
+| 60%       | 80,000 |
+| 70%       | 60,000 |
+| 80%       | 40,000 |
+| 90%       | 20,000 |
+
+Picking a percentage:
+1. Reads the current model's context limit from the server
+   (`GET /config/providers`), so it stays correct if you switch models.
+2. Applies it live via `PATCH /config` (`compaction.reserved`), no restart.
+3. Persists it into the server's `opencode.jsonc`
+   (`$XDG_CONFIG_HOME/opencode/opencode.jsonc`) so it survives restarts.
+
+New files: `bot/commands/compaction-level-command.js`,
+`bot/callbacks/compaction-level-callback-handler.js`. Edited: command router,
+callback router (new `cplvl` prefix route), command definitions, the inline
+menu kinds list, and the English texts (`cplvl.*` keys).
+
+The setup script applies this patch automatically. After a manual bridge
+package reinstall, reapply it (after 6f) with:
+
+```bash
+cd /workspace
+patch -p1 < opencode-telegram-startup/patches/opencode-telegram-bot-compaction-level.patch
 ```
 
 ---
