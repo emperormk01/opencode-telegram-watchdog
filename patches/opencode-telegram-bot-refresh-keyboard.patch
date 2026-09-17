@@ -1,0 +1,89 @@
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/definitions.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/definitions.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/definitions.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/definitions.js
+@@ -18,6 +18,7 @@ const COMMAND_DEFINITIONS = [
+     { command: "mcps", descriptionKey: "cmd.description.mcps" },
+     { command: "opencode_restart", descriptionKey: "cmd.description.opencode_restart" },
++    { command: "refresh_keyboard", descriptionKey: "cmd.description.refresh_keyboard" },
+     { command: "delete_session", descriptionKey: "cmd.description.delete_session" },
+     { command: "compaction_level", descriptionKey: "cmd.description.compaction_level" },
+     { command: "open", descriptionKey: "cmd.description.open" },
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/refresh-keyboard-command.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/refresh-keyboard-command.js
+new file mode  100644
+--- /dev/null
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/refresh-keyboard-command.js
+@@ -0,0 +1,48 @@
++import { keyboardManager } from "../keyboards/keyboard-manager.js";
++import { t } from "../../i18n/index.js";
++import { getCurrentSession } from "../../app/services/session-service.js";
++import { createMainKeyboard } from "../keyboards/main-reply-keyboard.js";
++import { getStoredModel } from "../../app/services/model-selection-service.js";
++import { formatVariantForButton } from "../../app/services/variant-selection-service.js";
++import { logger } from "../../utils/logger.js";
++
++/**
++ * Refresh the reply keyboard by re-initializing the keyboard manager
++ * and getting the current keyboard state.
++ * This is useful when the keyboard buttons are not displaying correctly.
++ */
++export async function refreshKeyboardCommand(ctx) {
++    if (!ctx.chat || !ctx.api) {
++        return;
++    }
++
++    try {
++        // Initialize the keyboard manager with the current API and chat
++        keyboardManager.initialize(ctx.api, ctx.chat.id);
++        
++        // Get current model info
++        const storedModel = getStoredModel();
++        const variantName = formatVariantForButton(storedModel.variant || "default");
++        const contextInfo = keyboardManager.getContextInfo();
++        
++        // Build the keyboard with current state
++        const keyboard = createMainKeyboard(
++            keyboardManager.getState()?.currentAgent || "agent",
++            storedModel,
++            contextInfo ?? undefined,
++            variantName
++        );
++        
++        await ctx.reply(t("refresh_keyboard.success"), { reply_markup: keyboard });
++    }
++    catch (error) {
++        logger.warn("[Bot] Error refreshing keyboard:", error);
++        await ctx.reply(t("refresh_keyboard.error"));
++    }
++}
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/routers/command-router.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/routers/command-router.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/routers/command-router.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/routers/command-router.js
+@@ -4,6 +4,7 @@
+ import { settingsCommand } from "../commands/settings-command.js";
+ import { opencodeStopCommand } from "../commands/opencode-stop-command.js";
++import { refreshKeyboardCommand } from "../commands/refresh-keyboard-command.js";
+ import { projectsCommand } from "../commands/projects-command.js";
+ import { worktreeCommand } from "../commands/worktree-command.js";
+@@ -68,6 +69,7 @@
+     bot.command("opencode_restart", opencodeRestartCommand);
++    bot.command("refresh_keyboard", refreshKeyboardCommand);
+     bot.command("projects", projectsCommand);
+     bot.command("worktree", worktreeCommand);
+diff --git a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/i18n/en.js
+@@ -14,6 +14,7 @@
+     "cmd.description.opencode_start": "Start OpenCode server",
+     "cmd.description.opencode_stop": "Stop OpenCode server",
++    "cmd.description.refresh_keyboard": "Refresh the reply keyboard buttons",
+     "cmd.description.ls": "List directory contents",
+     "cmd.description.help": "Help",
+     "callback.unknown_command": "Unknown command",
+@@ -250,5 +251,9 @@
+     "opencode_restart.restarting": "🔄 Restarting the Telegram bridge safely. Your OpenCode server and current session will stay alive.",
+     "opencode_restart.done": "✅ Restarted.",
++    "refresh_keyboard.success": "⌨️ Keyboard refreshed! Send a prompt to see the buttons.",
++    "refresh_keyboard.no_session": "⚠️ No active session. Create one with /new first.",
++    "refresh_keyboard.no_keyboard": "⚠️ Keyboard is not initialized. Start a session first.",
++    "refresh_keyboard.error": "❌ Failed to refresh keyboard.",
+ }

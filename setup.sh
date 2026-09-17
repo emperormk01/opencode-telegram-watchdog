@@ -140,6 +140,13 @@ echo ">> Applying compaction-level patch..."
 patch -p1 -d "$WORKSPACE" --forward --silent < "$REPO/patches/opencode-telegram-bot-compaction-level.patch" \
   || echo "   (patch already applied or no-op — continuing)"
 
+# Refresh keyboard command: /refresh_keyboard re-initializes the reply keyboard
+# and sends a new message with updated button state. Useful when keyboard
+# buttons appear cached or stale.
+echo ">> Applying refresh-keyboard command patch..."
+patch -p1 -d "$WORKSPACE" --forward --silent < "$REPO/patches/opencode-telegram-bot-refresh-keyboard.patch" \
+  || echo "   (patch already applied or no-op — continuing)"
+
 # ---------------------------------------------------------------------------
 # 4. Collect vault secrets (never in chat; secure prompts)
 # ---------------------------------------------------------------------------
