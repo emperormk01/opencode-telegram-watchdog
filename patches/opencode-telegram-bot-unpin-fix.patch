@@ -1,7 +1,6 @@
 --- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/pinned/pinned-message-manager.js
 +++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/pinned/pinned-message-manager.js
 @@ -883,9 +883,12 @@ class PinnedMessageManager {
-         }
          try {
 -            await this.api.unpinAllChatMessages(this.chatId).catch(() => { });
 +            const oldClearId = this.state?.messageId;

@@ -1,0 +1,37 @@
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/app/bootstrap/start-bot-app.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/app/bootstrap/start-bot-app.js
+@@ -28,6 +28,30 @@ async function refreshCommandsMenu(bot) {
+         logger.warn("[Bot] Failed to refresh commands menu at startup:", error);
+     }
+ }
++// If the previous bridge process restarted itself via /opencode_restart, it left
++// a marker file; edit its status message to the final "✅ Restarted." text.
++async function confirmPendingRestart(bot) {
++    const pendingPath = path.join(getRuntimePaths().appHome, "pending-restart.json");
++    try {
++        await fs.access(pendingPath);
++    }
++    catch {
++        return;
++    }
++    try {
++        const content = JSON.parse(await fs.readFile(pendingPath, "utf-8"));
++        await bot.api.editMessageText(content.chatId, content.messageId, t("opencode_restart.restarted"));
++        await fs.rm(pendingPath).catch(() => {});
++        logger.info("[Bot] Edited pending restart message to '✅ Restarted.'");
++    }
++    catch (error) {
++        logger.debug("[Bot] Could not edit pending restart message:", error.message);
++    }
++}
+ function getTelegramErrorCode(error) {
+     if (typeof error !== "object" || error === null) {
+         return null;
+@@ -250,6 +274,7 @@ export async function startBotApp() {
+                 logger.info(`Bot @${botInfo.username} started!`);
+                 restoreFollowedSessionOnPollingStart(bot);
+                 refreshCommandsMenu(bot);
++                confirmPendingRestart(bot);
+             },
+         });
+     }

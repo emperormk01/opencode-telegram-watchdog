@@ -1,0 +1,10 @@
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/handlers/prompt.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/handlers/prompt.js
+@@ -210,6 +210,8 @@ export async function processUserPrompt(ctx, input, deps, options = {}) {
+         return false;
+     }
+     try {
++        keyboardManager.initialize(ctx.api, ctx.chat.id);
+         const currentAgent = await resolveProjectAgent(getStoredAgent());
+         const storedModel = (deps.getStoredModel ?? getStoredModel)();
+         const preparedInput = await prepareTelegramPhotos(ctx, input, deps, storedModel);
