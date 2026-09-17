@@ -1,0 +1,9 @@
+--- a/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/definitions.js
++++ b/runtime/opencode-telegram-bot/node_modules/@grinev/opencode-telegram-bot/dist/bot/commands/definitions.js
+@@ -20,8 +20,6 @@ const COMMAND_DEFINITIONS = [
+     { command: "mcps", descriptionKey: "cmd.description.mcps" },
+-    { command: "opencode_start", descriptionKey: "cmd.description.opencode_start" },
+-    { command: "opencode_stop", descriptionKey: "cmd.description.opencode_stop" },
+     { command: "open", descriptionKey: "cmd.description.open" },
+     { command: "ls", descriptionKey: "cmd.description.ls" },
+     { command: "help", descriptionKey: "cmd.description.help" },
