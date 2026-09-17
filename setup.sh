@@ -95,7 +95,6 @@ fi
 echo ">> Applying pinned-message patch..."
 patch -p1 -d "$WORKSPACE" --forward --silent < "$REPO/patches/opencode-telegram-bot-unpin-fix.patch" \
   || echo "   (patch already applied or no-op — continuing)"
-
 # Always (re)apply the session-recovery patch (auto-recreates a session when
 # the OpenCode server restarts and wipes its session store) — NOT in the package.
 echo ">> Applying session-recovery patch..."
@@ -114,12 +113,22 @@ echo ">> Applying safe-restart-command patch..."
 patch -p1 -d "$WORKSPACE" --forward --silent < "$REPO/patches/opencode-telegram-bot-safe-restart-command.patch" \
   || echo "   (patch already applied or no-op — continuing)"
 
+# Remove unsafe /opencode_start and /opencode_stop commands (the supervisor owns
+# the server lifecycle; stopping it from Telegram wipes the in-memory session store).
+echo ">> Applying remove-unsafe-commands patch..."
+patch -p1 -d "$WORKSPACE" --forward --silent < "$REPO/patches/opencode-telegram-bot-remove-unsafe-commands.patch" \
+  || echo "   (patch already applied or no-op — continuing)"
+
 # Restart upgrade: /opencode_restart edits its message to "✅ Restarted." after
-# the relaunch, the Telegram "/" menu is force-refreshed on every boot, and the
-# unsafe /opencode_start and /opencode_stop commands are removed entirely
-# (the supervisor owns the server lifecycle).
-echo ">> Applying restart-upgrade patch..."
-patch -p1 -d "$WORKSPACE" --forward --silent < "$REPO/patches/opencode-telegram-bot-restart-upgrade.patch" \
+# the relaunch, and the Telegram "/" menu is force-refreshed on every boot.
+echo ">> Applying restart-upgrade-enhanced patch..."
+patch -p1 -d "$WORKSPACE" --forward --silent < "$REPO/patches/opencode-telegram-bot-restart-upgrade-enhanced.patch" \
+  || echo "   (patch already applied or no-op — continuing)"
+
+# Keyboard fix: ensure keyboard state (agent/model/variant) is initialized on
+# every prompt so buttons always render with current state.
+echo ">> Applying keyboard-fix patch..."
+patch -p1 -d "$WORKSPACE" --forward --silent < "$REPO/patches/opencode-telegram-bot-keyboard-fix.patch" \
   || echo "   (patch already applied or no-op — continuing)"
 
 # Delete-session command: /delete_session lists sessions in an inline keyboard
