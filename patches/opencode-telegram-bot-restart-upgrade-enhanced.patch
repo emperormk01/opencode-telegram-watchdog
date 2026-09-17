@@ -16,7 +16,7 @@
 +    }
 +    try {
 +        const content = JSON.parse(await fs.readFile(pendingPath, "utf-8"));
-+        await bot.api.editMessageText(content.chatId, content.messageId, t("opencode_restart.restarted"));
++        await bot.api.editMessageText(content.chatId, content.messageId, t("opencode_restart.done"));
 +        await fs.rm(pendingPath).catch(() => {});
 +        logger.info("[Bot] Edited pending restart message to '✅ Restarted.'");
 +    }
