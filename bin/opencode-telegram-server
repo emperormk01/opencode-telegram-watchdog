@@ -14,6 +14,11 @@ if [ -z "$SERVER_PW" ] || [ -z "$API_KEY" ]; then
 fi
 
 mkdir -p "$ROOT"/{opencode-data,opencode-config,opencode-cache,logs}
+# Scrub inherited proxies: a stale HTTP(S)_PROXY (e.g. from a boot-time ephemeral
+# proxy) makes every provider call fail with "Unable to connect". This box has
+# direct egress, so the daemon must never route through one.
+unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy
+export NO_PROXY=localhost,127.0.0.1,::1
 export HOME=/workspace
 export OPENCODE_SERVER_PASSWORD="$SERVER_PW"
 export OPENCODE_API_KEY="$API_KEY"
