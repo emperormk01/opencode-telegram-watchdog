@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Sourced prelude for the watchdog launchers.
+#
+# Background: this workspace confines workload processes to a small memory
+# cgroup (/clawd-workloads, ~480 MiB). The OpenCode API server alone grows past
+# that, so the kernel OOM-kills it every few minutes and the Telegram bridge
+# then has nothing to talk to. Move the watchdog into the (unrestricted) root
+# cgroup, but keep oom_score_adj at 1000 so that if the whole machine ever runs
+# short of memory the kernel reclaims the watchdog before anything the user is
+# actively using.
+#
+# Safe to source more than once; never aborts the caller.
+
+_wd_escape_cgroup() {
+  local f
+  for f in /sys/fs/cgroup/memory/cgroup.procs /sys/fs/cgroup/cpu,cpuacct/cgroup.procs; do
+    if [ -w "$f" ]; then
+      printf '%s\n' "$$" >"$f" 2>/dev/null || true
+    fi
+  done
+  printf '1000\n' >/proc/self/oom_score_adj 2>/dev/null || true
+  return 0
+}
+
+_wd_escape_cgroup

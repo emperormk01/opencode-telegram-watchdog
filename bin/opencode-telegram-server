@@ -1,32 +1,23 @@
 #!/usr/bin/env bash
-# Vault-backed localhost OpenCode server for the Telegram bridge.
+# Localhost-only OpenCode API server, configured from the workspace environment.
 set -euo pipefail
 umask 077
-
-ROOT=/workspace/data/opencode-telegram
-OPENCODE_EXE=/workspace/.opencode/bin/opencode
-SERVER_PW="$(assistant credentials reveal --service opencode_proxy --field server_password 2>/dev/null || true)"
-API_KEY="$(assistant credentials reveal --service opencode --field api_key 2>/dev/null || true)"
-
-if [ -z "$SERVER_PW" ] || [ -z "$API_KEY" ]; then
-  echo "opencode-telegram-server: required vault credentials unavailable" >&2
-  exit 1
-fi
-
-mkdir -p "$ROOT"/{opencode-data,opencode-config,opencode-cache,logs}
-# Scrub inherited proxies: a stale HTTP(S)_PROXY (e.g. from a boot-time ephemeral
-# proxy) makes every provider call fail with "Unable to connect". This box has
-# direct egress, so the daemon must never route through one.
-unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy
+BIN="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if [ -r "$BIN/opencode-telegram-cgroup" ]; then . "$BIN/opencode-telegram-cgroup"; fi
+ROOT="$(cd -- "$BIN/.." && pwd)"
+DATA="$ROOT/data"
+OPENCODE="$ROOT/runtime/opencode/opencode"
+: "${OPENCODE_API_KEY:?OPENCODE_API_KEY is not configured}"
+: "${OPENCODE_SERVER_PASSWORD:?OPENCODE_SERVER_PASSWORD is not configured}"
+if [[ ! -x "$OPENCODE" ]]; then echo 'OpenCode CLI is not installed; run workspace setup.sh first.' >&2; exit 1; fi
+mkdir -p "$DATA/opencode-data" "$DATA/opencode-config" "$DATA/opencode-cache" "$DATA/logs"
+# Keep upstream proxy settings away from provider connections.
+unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy || true
 export NO_PROXY=localhost,127.0.0.1,::1
-export HOME=/workspace
-export OPENCODE_SERVER_PASSWORD="$SERVER_PW"
-export OPENCODE_API_KEY="$API_KEY"
-export XDG_DATA_HOME="$ROOT/opencode-data"
-export XDG_CONFIG_HOME="$ROOT/opencode-config"
-export XDG_CACHE_HOME="$ROOT/opencode-cache"
-
-exec "$OPENCODE_EXE" serve \
-  --hostname 127.0.0.1 \
-  --port 4096 \
-  --log-level INFO
+export HOME="$ROOT"
+export OPENCODE_SERVER_PASSWORD
+export OPENCODE_API_KEY
+export XDG_DATA_HOME="$DATA/opencode-data"
+export XDG_CONFIG_HOME="$DATA/opencode-config"
+export XDG_CACHE_HOME="$DATA/opencode-cache"
+exec "$OPENCODE" serve --hostname 127.0.0.1 --port 4096 --log-level INFO

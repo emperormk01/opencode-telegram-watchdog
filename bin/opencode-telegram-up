@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Restart the workspace OpenCode Telegram watchdog cleanly.
+set -uo pipefail
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+PROJECT="$ROOT/opencode-telegram-watchdog"
+DATA="$PROJECT/data"
+PAT_BOT='@grinev/opencode-telegram'
+PAT_SUP='opencode-telegram-supervise'
+PAT_SRV='runtime/opencode/opencode serve'
+
+self="$$"
+kill_matching() {
+  local pat="$1" p
+  for p in $(pgrep -f "$pat" 2>/dev/null); do
+    [ "$p" = "$self" ] && continue
+    kill "$p" 2>/dev/null || true
+  done
+}
+kill_matching "$PAT_BOT"
+kill_matching "$PAT_SUP"
+kill_matching "$PAT_SRV"
+sleep 2
+rm -f "$DATA/run/supervisor.pid"
+exec "$ROOT/start-watchdog.sh"

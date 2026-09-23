@@ -559,3 +559,37 @@ hooks/
 README.md
 INSTALL.md
 ```
+
+---
+
+## Changelog — 2026-09-23 (Starchild agent adaptation)
+
+The launchers were adapted from the original `/workspace` host layout to a
+self-contained, repo-relative layout so the watchdog runs inside a small
+(~1 GB RAM) container.
+
+### Modified
+- **`bin/opencode-telegram-bridge`** — now repo-relative; reads
+  `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_ID` and
+  `OPENCODE_SERVER_PASSWORD` from the environment instead of a vault CLI;
+  caps the bridge V8 heap at 256 MiB so it never competes with the API server.
+- **`bin/opencode-telegram-server`** — repo-relative paths; password sourced
+  from `OPENCODE_SERVER_PASSWORD` env var.
+- **`bin/opencode-telegram-restart`** — simplified safe-restart helper that
+  kills bot/supervisor/server by pattern and re-runs the workspace
+  `start-watchdog.sh`.
+- **`bin/opencode-telegram-supervise`** — rewritten as a lean idempotent
+  supervisor (~270 lines lighter): 20s health checks, PID files under
+  `data/run/`, restarts whichever of server/bridge died.
+
+### Added
+- **`bin/opencode-telegram-cgroup`** — sourced prelude that moves the
+  watchdog out of the restrictive `clawd-workloads` memory cgroup (the API
+  server was OOM-killed every few minutes) while keeping `oom_score_adj=1000`.
+- **`bin/opencode-telegram-up`** — one-shot "restart everything" helper.
+- **`.gitignore`** — ignores `runtime/`, `data/`, and local secrets so the
+  installed runtime and credentials never get committed.
+
+### Runtime state
+Verified working: OpenCode server on 127.0.0.1:4096 (auth-protected),
+Telegram bridge bot running, supervisor keeping both alive with 20s checks.
